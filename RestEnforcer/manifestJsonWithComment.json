@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3, // 必须为3，Manifest V3标准
+  "name": "网站监督助手", // 插件名称，可自定义
+  "version": "1.0", // 插件版本，固定1.0即可
+  "description": "指定网站连续运行30分钟，强制休息10分钟", // 插件描述，可自定义
+  "permissions": [ // 插件需要的权限，缺一不可
+    "storage", // 本地存储（保存计时、网站列表）
+    "alarms", // 闹钟计时（精准计时核心）
+    "tabs", // 标签页检测（识别目标网站是否打开）
+    "scripting" // 页面注入（休息时隐藏网站内容）
+  ],
+  "host_permissions": [ // 允许插件作用于所有网站
+    "<all_urls>"
+  ],
+  "action": { // 插件图标和弹窗配置
+    "default_popup": "popup.html", // 点击插件图标弹出的页面
+    "default_icon": { // 插件图标（临时用默认图，后续可替换）
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": { // 后台服务（核心计时逻辑，常驻运行）
+    "service_worker": "background.js" // 后台运行的脚本文件
+  },
+  "icons": { // 插件在浏览器扩展页的图标
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

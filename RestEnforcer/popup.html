@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>网站监督助手</title>
+  <link rel="stylesheet" href="popup.css"> <!-- 引入样式文件 -->
+</head>
+<body>
+  <div class="container">
+    <!-- 计时状态显示区：实时显示当前状态 -->
+    <div class="status">
+      <p>当前状态：<span id="currentStatus">未检测到目标网站</span></p>
+      <p>剩余时间：<span id="remainingTime">00:00</span></p>
+    </div>
+    <div class="divider"></div> <!-- 分隔线，美化布局 -->
+    <h3>网站监督设置</h3>
+    <!-- 目标网站输入框：一行一个网站，比如www.bilibili.com -->
+    <textarea id="siteList"></textarea>
+    <button id="saveBtn">保存网站列表</button>
+     <!-- 黑屏时段设置模块 -->
+    <h3>每日黑屏屏蔽设置</h3>
+    <textarea id="blackoutTimes"></textarea>
+    <button id="saveBlackoutBtn">保存黑屏时段</button>
+  </div>
+  <!-- 引入弹窗交互脚本 -->
+  <script src="popup.js"></script>
+</body>
+</html>

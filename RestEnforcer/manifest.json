@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "RestEnforcer",
+  "version": "1.0",
+  "description": "指定网站连续运行30分钟，强制休息10分钟。可以设置固定时间段全部不可使用。",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": { 
+    "default_popup": "popup.html", 
+    "default_icon": { 
+      "1": "icons/icon1.png",
+      "2": "icons/icon2.png",
+      "3": "icons/icon3.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "1": "icons/icon1.png",
+    "2": "icons/icon2.png",
+    "3": "icons/icon3.png"
+  }
+}
