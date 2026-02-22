@@ -25,14 +25,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 2. 原有功能：保存目标网站列表
   saveBtn.addEventListener('click', () => {
-    const inputValue = siteListText.value.trim();
-    let targetSites = [];
-    if (inputValue) {
-      targetSites = inputValue.split('\n').map(s => s.trim()).filter(s => s);
-    }
-    chrome.storage.local.set({ targetSites }, () => {
-      alert('网站列表保存成功！');
-      chrome.runtime.sendMessage({ type: 'SITES_UPDATED' });
+    chrome.storage.local.get(['monitorStatus'], (result) => {
+      const status = result.monitorStatus || 'idle';
+      
+      if (status === 'rest' || status === 'blackout') {
+        alert('当前处于强制休息或黑屏时段，为保证效果，禁止修改监督列表！\n请等待休息结束后再进行调整。');
+        // 可选：重置回原来的值，避免用户困惑为什么没保存
+        chrome.storage.local.get(['targetSites'], (res) => {
+            if (res.targetSites) {
+                siteListText.value = res.targetSites.join('\n');
+            }
+        });
+        return;
+      }
+
+      const inputValue = siteListText.value.trim();
+      let targetSites = [];
+      if (inputValue) {
+        targetSites = inputValue.split('\n').map(s => s.trim()).filter(s => s);
+      }
+      chrome.storage.local.set({ targetSites }, () => {
+        alert('网站列表保存成功！');
+        chrome.runtime.sendMessage({ type: 'SITES_UPDATED' });
+      });
     });
   });
 
