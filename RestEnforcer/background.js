@@ -97,17 +97,25 @@ async function hasTargetSiteOpen() {
   
   if (targetSites.length === 0) return { hasTarget: false, targetTabs: [] };
 
-  const tabs = await chrome.tabs.query({});
+  // 检查窗口是否聚焦，并在聚焦窗口中查找激活的标签页
+  const windows = await chrome.windows.getAll({ populate: true });
   let hasTarget = false;
   const targetTabs = [];
-  
-  for (const tab of tabs) {
-    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('about:')) continue;
+
+  for (const win of windows) {
+    // 必须是当前聚焦的窗口
+    if (!win.focused) continue;
+    
+    // 找到该窗口中的激活标签页
+    const activeTab = win.tabs.find(t => t.active);
+    if (!activeTab) continue;
+
+    if (!activeTab.url || activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('about:')) continue;
     try {
-      const tabDomain = new URL(tab.url).host;
+      const tabDomain = new URL(activeTab.url).host;
       if (targetSites.includes(tabDomain)) {
         hasTarget = true;
-        targetTabs.push(tab);
+        targetTabs.push(activeTab);
       }
     } catch (e) { /* ignore */ }
   }
@@ -371,53 +379,32 @@ async function updateTimer() {
   // 此时 monitorStatus 可能是 idle 或 rest
   if (monitorStatus === 'idle') {
     // 仍在正常使用配额中
-    let newLogs = await updateUsageLog(true);
-    const totalUsage = calculateTotalUsageInWindow(newLogs);
-
-    if (totalUsage >= TOTAL_USAGE_LIMIT) {
-      // 触发休息
-      const restEndTime = Date.now() + (REST_DURATION * 1000);
-      monitorStatus = 'rest';
-      remainingSeconds = REST_DURATION;
-      await updateTabStyles('inject', REST_CSS);
-      // 清除 Session 并保存 REST 状态
-      await chrome.storage.local.set({ 
-          monitorStatus: 'rest', 
-          remainingSeconds: REST_DURATION, 
-          restEndTime: restEndTime,
-          currentSession: null 
-      });
-      return;
-    } else {
-      // 更新剩余可用时间
-      const usageLeft = TOTAL_USAGE_LIMIT - totalUsage;
-      const sessionLeft = Math.floor(Math.max(0, sessionLimit - sessionElapsed));
-      remainingSeconds = Math.min(usageLeft, sessionLeft);
+    // 即使不限制总时长，我们依然记录使用日志以备将来分析（可选）
+    await updateUsageLog(true);
+    
+    // 更新剩余可用时间
+    // 只依赖当前 session 的剩余时间
+    const sessionLeft = Math.floor(Math.max(0, sessionLimit - sessionElapsed));
+    remainingSeconds = sessionLeft;
       
-      // 如果 session 结束了
-      if (sessionLeft <= 0) {
-          // 这里实际上由上面的 if (sessionElapsed >= sessionLimit) 捕获，
-          // 但由于 calculateTotalUsageInWindow 可能有微小误差，或者 sessionLimit 计算方式略有不同，
-          // 这里作为一个兜底，如果 session 时间到了，也应该触发休息。
-          // 或者，如果不强制休息，只是结束 session，那就:
-          // await chrome.storage.local.set({ currentSession: null });
-          
-          // 根据用户需求： session 结束 -> 强制休息
-          const restEndTime = Date.now() + (REST_DURATION * 1000);
-          monitorStatus = 'rest';
-          remainingSeconds = REST_DURATION;
-          await updateTabStyles('inject', REST_CSS);
-          await chrome.storage.local.set({ 
-              monitorStatus: 'rest', 
-              remainingSeconds: REST_DURATION, 
-              restEndTime: restEndTime,
-              currentSession: null 
-          });
-          return;
-      }
+    // 如果 session 结束了
+    if (sessionLeft <= 0) {
+        // 根据用户需求： session 结束 -> 强制休息
+        const restEndTime = Date.now() + (REST_DURATION * 1000);
+        monitorStatus = 'rest';
+        remainingSeconds = REST_DURATION;
+        await updateTabStyles('inject', REST_CSS);
+        await chrome.storage.local.set({ 
+            monitorStatus: 'rest', 
+            remainingSeconds: REST_DURATION, 
+            restEndTime: restEndTime,
+            currentSession: null 
+        });
+        return;
     }
   } 
   // else if (monitorStatus === 'rest') block is removed as it's handled at the top
+
   
   // 保存状态
   await chrome.storage.local.set({
