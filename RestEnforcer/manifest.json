@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "RestEnforcer",
   "version": "1.0",
-  "description": "指定网站连续运行30分钟，强制休息10分钟。可以设置固定时间段全部不可使用。",
+  "description": "每次打开网站时询问预期用时，结束后强制休息10分钟。可以设置固定时间段全部不可使用。",
   "permissions": [
     "storage",
     "alarms",
