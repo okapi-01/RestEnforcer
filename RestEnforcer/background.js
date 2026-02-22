@@ -97,16 +97,13 @@ async function hasTargetSiteOpen() {
   
   if (targetSites.length === 0) return { hasTarget: false, targetTabs: [] };
 
-  // 检查窗口是否聚焦，并在聚焦窗口中查找激活的标签页
   const windows = await chrome.windows.getAll({ populate: true });
   let hasTarget = false;
   const targetTabs = [];
 
   for (const win of windows) {
-    // 必须是当前聚焦的窗口
     if (!win.focused) continue;
     
-    // 找到该窗口中的激活标签页
     const activeTab = win.tabs.find(t => t.active);
     if (!activeTab) continue;
 
@@ -133,6 +130,49 @@ async function injectSessionPrompt(tabId) {
   } catch (e) { console.error("Failed to inject prompt", e); }
 }
 
+// 注入剩余时间提醒 (1分钟)
+async function injectReminder(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // 创建提示框
+        const div = document.createElement('div');
+        div.textContent = "⚠️ 注意：剩余时间仅剩 1 分钟";
+        div.style.cssText = `
+          position: fixed;
+          top: 20px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(255, 69, 0, 0.9);
+          color: white;
+          padding: 12px 24px;
+          border-radius: 8px;
+          font-size: 16px;
+          font-weight: bold;
+          z-index: 2147483647;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          pointer-events: none;
+          transition: opacity 0.5s ease;
+          opacity: 0;
+        `;
+        document.body.appendChild(div);
+
+        // 动画效果
+        requestAnimationFrame(() => {
+          div.style.opacity = '1';
+        });
+
+        // 5秒后自动消失
+        setTimeout(() => {
+          div.style.opacity = '0';
+          setTimeout(() => div.remove(), 500);
+        }, 5000);
+      }
+    });
+  } catch (e) { console.error("Failed to inject reminder", e); }
+}
+
 // 移除 Intent Prompt
 async function removeSessionPrompt(tabId) {
   try {
@@ -147,6 +187,60 @@ async function removeSessionPrompt(tabId) {
       }
     });
   } catch (e) { console.error("Failed to remove prompt", e); }
+}
+
+// 注入非侵入式提醒 (Toast)
+async function injectReminder(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // 防止重复注入
+        if (document.getElementById('rest-enforcer-toast')) return;
+
+        const toast = document.createElement('div');
+        toast.id = 'rest-enforcer-toast';
+        toast.textContent = '⏱️ 剩余时间 1 分钟，即将进入休息时间。';
+        
+        // 样式设置
+        Object.assign(toast.style, {
+          position: 'fixed',
+          top: '20px',
+          right: '50%', // 居中显示更显眼
+          transform: 'translateX(50%) translateY(-100px)',
+          zIndex: '2147483647',
+          padding: '12px 24px',
+          backgroundColor: 'rgba(50, 50, 50, 0.95)',
+          color: '#fff',
+          borderRadius: '8px',
+          fontSize: '16px',
+          fontWeight: '500',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          pointerEvents: 'none', // 不影响点击
+          transition: 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.5s ease',
+          opacity: '0'
+        });
+
+        document.body.appendChild(toast);
+
+        // 进场动画
+        requestAnimationFrame(() => {
+          toast.style.transform = 'translateX(50%) translateY(0)';
+          toast.style.opacity = '1';
+        });
+
+        // 5秒后消失
+        setTimeout(() => {
+          if (toast) {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(50%) translateY(-20px)';
+            setTimeout(() => toast.remove(), 500);
+          }
+        }, 5000);
+      }
+    });
+  } catch (e) { console.error("Failed to inject reminder", e); }
 }
 
 // 通用样式注入/移除工具
@@ -254,10 +348,10 @@ async function updateTimer() {
   await updateTabStyles('remove', BLACKOUT_CSS);
 
   const storageData = await chrome.storage.local.get([
-    'monitorStatus', 'remainingSeconds', 'targetSites', 'usageLogs', 'currentSession'
+    'monitorStatus', 'remainingSeconds', 'targetSites', 'usageLogs', 'currentSession', 'restEndTime'
   ]);
   
-  let { monitorStatus = 'idle', remainingSeconds = 0, usageLogs = [], currentSession } = storageData;
+  let { monitorStatus = 'idle', remainingSeconds = 0, usageLogs = [], currentSession, restEndTime } = storageData;
   const { targetSites = [] } = storageData;
 
   // 如果刚从 blackout 恢复，重置状态为 idle
@@ -273,53 +367,82 @@ async function updateTimer() {
   // 正常的防沉迷逻辑
   const { hasTarget, targetTabs } = await hasTargetSiteOpen();
 
+  // DEBUG LOG
+  console.log(`[Timer] Status: ${monitorStatus}, Remaining: ${remainingSeconds}, HasTarget: ${hasTarget}, RestKey: ${restEndTime}`);
+
   // --- 优先级调整：如果由于防沉迷（Usage Limit）或 Session 耗尽导致处于 REST 状态，
   // 应优先执行 Rest 逻辑，而不是先检查 Session 是否存在。
   if (monitorStatus === 'rest') {
-    let { restEndTime } = storageData;
-    // 如果没有 restEndTime，说明是刚进入休息或者旧数据，初始化它
-    if (!restEndTime) {
-      restEndTime = Date.now() + (remainingSeconds * 1000);
-      await chrome.storage.local.set({ restEndTime });
+    const now = Date.now();
+
+    // 如果 restEndTime 不存在，或者 remainingSeconds 看起来是满的（REST_DURATION），重新初始化
+    // 强制修正：如果 remainingSeconds 是 undefined 或者 null，默认为 REST_DURATION
+    if (typeof remainingSeconds !== 'number') remainingSeconds = REST_DURATION;
+
+    // 关键修正：如果 restEndTime 无效，或者比现在早很多（异常过期），我们需要重置它
+    // 逻辑：如果 restEndTime 不存在，我们根据 remainingSeconds 算出 restEndTime
+    if (!restEndTime || typeof restEndTime !== 'number') {
+        // 使用 remainingSeconds 计算；如果是 0 或负数，重置为 REST_DURATION
+        const secondsToRest = (remainingSeconds > 0) ? remainingSeconds : REST_DURATION;
+        restEndTime = now + (secondsToRest * 1000);
+        console.log(`[Rest] Initializing restEndTime to ${new Date(restEndTime).toLocaleTimeString()}`);
+        await chrome.storage.local.set({ restEndTime });
     }
 
     if (hasTarget) {
-      // 只要目标网站打开，我们就“暂停”倒计时。
-      // 具体做法是：把 restEndTime 往后推，使得 (restEndTime - Now) 保持不变。
-      // 或者是直接重置 restEndTime = Now + remainingSeconds。
+      // 用户正在看目标网页 -> 暂停/推迟休息结束时间
+      // 将 restEndTime 推迟到 "从现在起 remainingSeconds 秒后"
+      // 这里的 remainingSeconds 应该是 "实际上还要休息多久"
+      // 但为了简单，每秒钟如果看着网页，就把 restEndTime 设为 now + remainingSeconds
       
-      // 此处逻辑：每过一秒(或者updateTimer调用一次)，如果不推迟，时间就流逝了。
-      // 为了暂停，我们需要把“流逝的时间”补回来，或者简单粗暴地重置 restEndTime。
+      // 读取当前的剩余时间（从上次存储）
+      // 如果这个剩余时间很小（比如已经是0了），就会导致问题。
+      // 但进入这里理论上 remainingSeconds > 0
       
-      // 注意：remainingSeconds 在这里是上次存储的值。
-      // 我们重新计算 restEndTime，确保它相对于现在依然有 remainingSeconds 那么久。
-      restEndTime = Date.now() + (remainingSeconds * 1000);
-      
-      // 同时确保注入 CSS
-      await updateTabStyles('inject', REST_CSS);
-    } else {
-      // 目标网站关闭了，正常流逝。
-      // 不修改 restEndTime，只更新 remainingSeconds。
-      // 这样如果电脑休眠，Date.now() 会跳变，remainingSeconds 也会瞬间减少。
-      const now = Date.now();
-      const left = Math.ceil((restEndTime - now) / 1000);
-      remainingSeconds = left; 
-    }
+      restEndTime = now + (remainingSeconds * 1000);
+      console.log(`[Rest] Target open, pausing. Pushing end time to ${new Date(restEndTime).toLocaleTimeString()}`);
 
-    // 检查是否结束
-    if (remainingSeconds <= 0) {
-      monitorStatus = 'idle';
-      remainingSeconds = 0;
-      await chrome.storage.local.remove(['restEndTime']);
-      await updateTabStyles('remove', REST_CSS);
-    } else {
-      // 更新存储
-      // 注意：如果 hasTarget 为 true，我们推迟了 restEndTime，需要保存新的 restEndTime
+      // 强制覆盖样式
+      await updateTabStyles('inject', REST_CSS);
+      
+      // 保存状态（这里存储 remainingSeconds 没变，restEndTime 变了）
       await chrome.storage.local.set({ 
-        monitorStatus, 
-        remainingSeconds,
-        restEndTime 
+          restEndTime,
+          // 确保 monitorStatus 还是 rest
+          monitorStatus: 'rest'
       });
+      
+    } else {
+      // 用户没看网页 -> 正常倒计时
+      // 计算新的剩余时间
+      let left = Math.ceil((restEndTime - now) / 1000);
+      console.log(`[Rest] Counting down... Left: ${left}s`);
+      
+      if (left < 0) left = 0;
+      remainingSeconds = left;
+      
+      // 只有剩余时间真的变了或者需要更新状态时才 set
+      // 但是为了 popup 看着在动，必须更新 remainingSeconds
+      
+      if (remainingSeconds <= 0) {
+        console.log(`[Rest] Finished! Resetting to idle.`);
+        monitorStatus = 'idle';
+        remainingSeconds = 0;
+        await chrome.storage.local.remove(['restEndTime']);
+        await updateTabStyles('remove', REST_CSS);
+        await chrome.storage.local.set({ 
+            monitorStatus: 'idle', 
+            remainingSeconds: 0,
+            currentSession: null 
+        });
+      } else {
+         // 正常更新剩余时间
+         await chrome.storage.local.set({ 
+             monitorStatus: 'rest',
+             remainingSeconds,
+             restEndTime // 保持原来的 restEndTime
+         });
+      }
     }
     
     return;
@@ -351,6 +474,16 @@ async function updateTimer() {
   const now = Date.now();
   const sessionElapsed = (now - currentSession.startTime) / 1000;
   const sessionLimit = currentSession.duration * 60;
+
+  // === 剩余 1 分钟提醒 ===
+  const sessionLeftSeconds = sessionLimit - sessionElapsed;
+  if (sessionLeftSeconds <= 60 && sessionLeftSeconds > 0 && !currentSession.reminderShown) {
+    for (const tab of targetTabs) {
+      injectReminder(tab.id);
+    }
+    currentSession.reminderShown = true;
+    await chrome.storage.local.set({ currentSession });
+  }
 
   // 如果 session 结束了，强制休息
   if (sessionElapsed >= sessionLimit) {
@@ -386,6 +519,18 @@ async function updateTimer() {
     // 只依赖当前 session 的剩余时间
     const sessionLeft = Math.floor(Math.max(0, sessionLimit - sessionElapsed));
     remainingSeconds = sessionLeft;
+
+    // 检查是否仅剩 1 分钟 (60秒)，并且从未提醒过
+    if (sessionLeft <= 60 && sessionLeft > 0 && !currentSession.hasReminded) {
+        // 触发提醒
+        for (const tab of targetTabs) {
+            injectReminder(tab.id);
+        }
+        // 标记已提醒
+        currentSession.hasReminded = true;
+        // 更新 Session 状态
+        await chrome.storage.local.set({ currentSession });
+    }
       
     // 如果 session 结束了
     if (sessionLeft <= 0) {
@@ -442,7 +587,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentSession: {
             intent,
             duration,
-            startTime: Date.now()
+            startTime: Date.now(),
+            hasReminded: false
         }
     }, () => {
         sendResponse({ success: true });
