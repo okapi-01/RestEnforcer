@@ -3,10 +3,12 @@ web extension for screen time control
 
 ## 功能
 对于自行指定的url进行以下操作：
-1. 长时间浏览中断：在前40分钟内若浏览这些url超过30分钟则统一用黑屏罩起来，使得无法继续浏览页面，必须休息10分钟。（这个时间如果想调的话在background.js最上面几行就能改）
+1. 打开网页时询问要做什么&预期用时，输入后即可开始浏览，预期用时结束后必须关闭该页面10分钟后才能再次浏览。
+   <img width="1358" height="826" alt="image" src="https://github.com/user-attachments/assets/07a54717-d627-4959-b6d6-f3045a769ea9" />
+   为了保护视力，预期用时不可超过40分钟，即输入任何大于40的数字都会=40。（这个时间如果想调的话在background.js最上面几行就能改）
 2. 定时屏蔽：可以设定每天几点到几点禁止浏览，则到时会统一用黑屏罩起来。若正处在屏蔽时段，则无法修改这个时间设置。
 
-url和定时屏蔽时间的设置都是直接点开插件即可设置
+url和定时屏蔽时间的设置都是直接点开插件即可设置（正处在休息时间时不可修改）
 <img width="447" height="783" alt="image" src="https://github.com/user-attachments/assets/16ae5028-048b-410e-b86f-1de8ab38e703" />
 
 
